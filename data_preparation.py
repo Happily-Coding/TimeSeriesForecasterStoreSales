@@ -34,8 +34,9 @@ def rename_raw_dfs_cols(train_xy_base_df, stores_df, oil_df, transactions_df, sp
     special_days_df = special_days_df.rename(columns={'type':'day_type', 'locale':'special_day_locale_type', 'locale_name':'special_day_locale','description':'special_day_reason', 'transferred':'special_day_transferred'})
     return train_xy_base_df, stores_df, oil_df, transactions_df, special_days_df
 
-def merge_data_sources(features_df:pd.DataFrame, stores_df:pd.DataFrame, oil_df:pd.DataFrame, transactions_df:pd.DataFrame, special_days_df:pd.DataFrame)->pd.DataFrame:
+def merge_data_sources(dataframes_tuple)->pd.DataFrame:
     """Add relevant columns from the auxiliary dataframes into a features dataset, be it the train set or the test set."""
+    features_df, stores_df, oil_df, transactions_df, special_days_df = dataframes_tuple
     full_features_df = features_df.merge(oil_df, on='date',how='left')
     full_features_df = full_features_df.merge(stores_df, on=['store_nbr'], how='left')
     full_features_df = full_features_df.merge(special_days_df, on='date', how='left')
@@ -52,11 +53,11 @@ def reorder_features_dataset(features_df):
                 'product_family', 'products_of_family_on_promotion'
             ]]
 
-def one_hot_encode_necessary_features(features_df): #TODO change call to after the creation of the proper columns, and the columns to match it.
+def one_hot_encode_necessary_features(features_df): #TODO make it take the columns to encode as parameter. or even better, make it be done using scklearn one hot encoder. Or even be
     """One hot encodes the columns, using their name as prefix, and adding them into the same place the original was, while removing the original """
     names_of_columns_to_ohe= [ 'store_nbr', 'product_family', 'store_city','store_state',
                       'store_type', 'day_type', 'special_day_locale_type', 'special_day_locale',
-                       'special_day_reason', 'special_day_transferred']
+                       'special_day_reason', 'special_day_reason_subtype', 'special_day_transferred']
                     #holiday_transferred may be better vectorized. Day type might be too. holiday_locale_type too.
                     #This is because their values might have meaning in the order.
     
@@ -97,6 +98,7 @@ def fill_missing_oil_values(features_df):
     # Instead just use the last known price, sinceFill down
     features_df['oil_price'] = features_df['oil_price'].ffill()#.fillna(method='ffill')
     features_df['oil_price'] = features_df['oil_price'].bfill() #Make sure that if the first elements are blank they still get a price (the price after them).
+    #features_df['oil_price'].interpolate(limit_direction="both")
     return features_df
 
 
@@ -153,9 +155,8 @@ def refine_special_day_reason(features_df):
 
 def replace_date_with_date_related_columns(features_df):
     """"Adds many date_related_columns """
-
-    features_df['date'] = pd.to_datetime(features_df['date'])
-
+    #Providing a date_time format speeds the method up.https://www.kaggle.com/code/kuldeepnpatel/to-datetime-is-too-slow-on-large-dataset
+    features_df['date'] = pd.to_datetime(features_df['date'],format='%Y-%M-%d')#%Y-%M-%d # = yyyy-mm-dd, ex= 2013-01-21
     #Calculate the absolute date (from unix epoch), which is a standard start date used by many siystems and libraries working with time series data.
     #While this would work its probably worth for the nn to learn.
     #UNIX_EPOCH = pd.Timestamp("1970-01-01")
@@ -171,7 +172,7 @@ def replace_date_with_date_related_columns(features_df):
     features_df['is_15th'] = (features_df['date'].dt.day == 15).astype(int)
     features_df['is_last_day_of_month'] = (features_df['date'] == features_df['date'] + MonthEnd(1)).astype(int)
 
-    features_df = features_df.drop(columns=['date'])
+    #features_df = features_df.drop(columns=['date'])
     return features_df
 
 
@@ -189,11 +190,35 @@ def prepare_features_df(features_df:pd.DataFrame, stores_df, oil_df, transaction
 
     return features_df
 
-def window_dataset():
-    """Window the dataset so that it can be used for training a neural network."""
-    #Aka create a window of days with values and then the unknown value for the next day. and then slide that window forward to create another data point.
-    #TODO
-    return
+#def window_sales():
+
+def rolling_window_dataset(df:pd.DataFrame, window_size):
+    """Window the dataset so that it can be used for training a neural network.
+       Creates a rolling window, aka if a series on the dataframe was 1,2,3 and window size was 2 the new series that will be on another column on a dataframe will be [1,2], [2,3]
+    """
+    #Create shifted versions of the entire dataframe. One shifted version per day in the window after the first one. 
+    dataframes = [df]
+    for lag in range(1, window_size):
+        #Create the shifted dataframe, making sure it keeps the appropiate dtypes
+        df_shifted = df.shift(lag)
+        df_shifted = df_shifted.iloc[window_size-1:]  # Remove rows that will lack values
+        df_shifted = df_shifted.astype(df.dtypes)
+        dataframes.append(df_shifted).add_suffix(f'_lag_{lag}'))
+    
+    dataframes[0] = dataframes[0].iloc[window_size-1:]
+
+    #Horizontally concatenate all the shifted dataframes.
+    df_concat = pd.concat(dataframes, axis=1)
+
+    return df_concat
+    #We could add some lead_time like this:
+    #def make_lags(ts, lags, lead_time=1): #https://www.kaggle.com/code/ryanholbrook/forecasting-with-machine-learning
+    # return pd.concat(
+    #     {
+    #         f'y_lag_{i}': ts.shift(i)
+    #         for i in range(lead_time, lags + lead_time)
+    #     },
+    #     axis=1)
 
 #perform fourier transform?
 #Inpute missing values in other columns? 
@@ -202,34 +227,36 @@ def window_dataset():
 #though i can imagine other approaches which could lead to better peformance, for example masking like bert does for text data.
 #Or creating crossval sets by skipping part of the time before prediction
 
-
-
-
 from sklearn.model_selection import KFold
 from sklearn.pipeline import FunctionTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
-def create_pipeline(stores_df, oil_df, transactions_df, special_days_df, verbose=False):
+from sklearn.linear_model import LinearRegression
+
+def create_pipeline(stores_df, oil_df, transactions_df, special_days_df, window_size=3, verbose=False):
     """Create a pipeline for data processing
        Keep in mind that pipelines are extremely practical, and easy to debug.
        You can call parts of the pipeline for debugging purposes by adding a list slicer next to it, for example pipeline[:1].fit_transform(dataset) or by name of the step.
        You can also call the pipeline with 'verbose=True' to analyze the time taken by each step.
        You can use ipython.display to display a graph of the pipeline steps too. Though it seems functiontransformer isnt really named with this way of defining them, you can create a class extending function transformer instead.
     """
-    cat_cols_to_ohe = [ 'store_nbr', 'store_cluster' 'product_family', 'store_city','store_state', 'store_type', 'day_type', 'special_day_locale_type', 'special_day_locale','special_day_reason', 'special_day_transferred']
+    cat_cols_to_ohe = [ 'store_nbr', 'store_cluster', 'product_family', 'store_city','store_state', 'store_type', 'day_type', 'special_day_locale_type', 'special_day_locale', 'special_day_reason', 'special_day_reason_subtype',  'special_day_transferred']
     numerical_features_to_min_max_scale = ['oil_price', 'all_products_transactions']
 
-    pipeline= Pipeline([
+    pipeline = Pipeline([
         ('rename_columns', FunctionTransformer(rename_raw_dfs_cols, kw_args={'stores_df': stores_df, 'oil_df': oil_df, 'transactions_df': transactions_df, 'special_days_df': special_days_df})),
-        ('merge_dataframes', FunctionTransformer(merge_data_sources, kw_args={'stores_df': stores_df, 'oil_df': oil_df, 'transactions_df': transactions_df, 'special_days_df': special_days_df})),
+        ('merge_dataframes', FunctionTransformer(merge_data_sources)), #, kw_args={'stores_df': stores_df, 'oil_df': oil_df, 'transactions_df': transactions_df, 'special_days_df': special_days_df}
         ('fill_missing_oil_values', FunctionTransformer(fill_missing_oil_values)), #Could be achievable with sklearn most likely
         ('refine_special_day_reason', FunctionTransformer(refine_special_day_reason)), #Isnt placed where the column came from.
         ('replace_date_with_date_related_columns', FunctionTransformer(replace_date_with_date_related_columns)), #Careful, moving calling this earlier could be problematic since it eliminates date column.
         ('reorder_features', FunctionTransformer(reorder_features_dataset)),
         ('prepare_features', ColumnTransformer([
-            ('standardize_numerical_features', MinMaxScaler(), numerical_features_to_min_max_scale), #MinMaxScaler().set_output(transform='pandas')
-            ('prepare_categorical_columns', FunctionTransformer(one_hot_encode_necessary_features), cat_cols_to_ohe)
-        ], remainder='passthrough', sparse_threshold=0, n_jobs=1, verbose_feature_names_out=False).set_output(transform='pandas')),
+            ('standardize_numerical_features', MinMaxScaler(), numerical_features_to_min_max_scale), 
+            ('prepare_categorical_columns', FunctionTransformer(one_hot_encode_necessary_features), cat_cols_to_ohe) #Could probably be transformed to one hot encoding directly
+        ], remainder='passthrough', sparse_threshold=0, n_jobs=3, verbose_feature_names_out=False).set_output(transform='pandas')),
+        ('window_dataset', FunctionTransformer(rolling_window_dataset, kw_args={'window_size': window_size}))
+        #,
+        #('model', LinearRegression())
     ], verbose=verbose)
     return pipeline
-
+    #TODO batch the pipeline if possible.
