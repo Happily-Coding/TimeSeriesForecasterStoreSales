@@ -33,6 +33,13 @@ ipykernel = "^6.29.2"
 kaggle = "^1.6.5"
 matplotlib = "^3.8.2"
 streamlit = "^1.31.0"
+seaborn = "^0.13.2"
+xgboost = "^2.0.3"
+plotly = "^5.22.0"
+nbformat = "^5.10.4" #for plotly
+bokeh = "^3.4.1"
+hvplot = "^0.10.0"
+
 
 
 [build-system]

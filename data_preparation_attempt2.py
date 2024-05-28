@@ -6,41 +6,69 @@ from pandas.tseries.offsets import MonthEnd
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from typing import NamedTuple
 import data_preparation_utils as prep_utils
+from typing import NamedTuple
 
 def download_dataset():
     prep_utils.download_kaggle_competition_dataset('./.kaggle/kaggle.json', 'store-sales-time-series-forecasting', './dataset')
 
-def get_raw_dfs() ->tuple[pd.DataFrame]:
+
+
+class TimeSeriesForecastDataframes(NamedTuple):
+    base_xy_df: pd.DataFrame
+    stores_df: pd.DataFrame
+    oil_df: pd.DataFrame
+    transactions_df: pd.DataFrame
+    special_days_df: pd.DataFrame
+
+def get_feature_dfs() ->TimeSeriesForecastDataframes:
     """Get dataframes containing all the info in the dataset.
     train_xy_base_df: The dataframe containing most features(x), and the Y value (sales). Base because other features should be merged into it.
-    train_xy_base_df: The dataframe containing most features(x), and the Y value (sales). Base because other features should be merged into it. 
     Note that the only features that will be provided for prediction are the ones in train_xy_base, but since most entities should already exist, so you have the data, it should still improve predictions to use the other dfs.
     """
     train_xy_base_df = pd.read_csv('./dataset/train.csv', index_col='id')
-    elements_to_predict_x_base_df = pd.read_csv('./dataset/test.csv', index_col='id')
     stores_df = pd.read_csv('./dataset/stores.csv', index_col='store_nbr')
     oil_df = pd.read_csv('./dataset/oil.csv') 
     transactions_df = pd.read_csv('./dataset/transactions.csv')
     holiday_events_df = pd.read_csv('./dataset/holidays_events.csv')
+    #elements_to_predict_x_base_df = pd.read_csv('./dataset/test.csv', index_col='id')
+    #sample_submission_df = pd.read_csv('./dataset/sample_submission.csv')
+    return TimeSeriesForecastDataframes(train_xy_base_df, stores_df, oil_df, transactions_df, holiday_events_df)
+
+class AdditionalDataframes(NamedTuple):
+    elements_to_predict_x_base_df: pd.DataFrame
+    sample_submission_df: pd.DataFrame
+
+def get_additional_dfs()->AdditionalDataframes:
+    elements_to_predict_x_base_df = pd.read_csv('./dataset/test.csv', index_col='id')
     sample_submission_df = pd.read_csv('./dataset/sample_submission.csv')
-    return train_xy_base_df, elements_to_predict_x_base_df, stores_df, oil_df, transactions_df, holiday_events_df, sample_submission_df
+    return AdditionalDataframes(elements_to_predict_x_base_df,sample_submission_df)
 
-def rename_raw_dfs_cols(train_xy_base_df, stores_df, oil_df, transactions_df, special_days_df) ->tuple:
-    """Rename the columns of the raw dataframes so they are more easily understandable"""
-    train_xy_base_df = train_xy_base_df.rename(columns={'family':'product_family', 'onpromotion':'products_of_family_on_promotion'})
-    oil_df = oil_df.rename(columns={'dcoilwtico':'oil_price'})
-    stores_df = stores_df.rename(columns={'type':'store_type', 'cluster':'store_cluster', 'city':'store_city', 'state':'store_state'})
-    transactions_df = transactions_df.rename(columns={'transactions':'all_products_transactions'})
-    special_days_df = special_days_df.rename(columns={'type':'day_type', 'locale':'special_day_locale_type', 'locale_name':'special_day_locale','description':'special_day_reason', 'transferred':'special_day_transferred'})
-    return train_xy_base_df, stores_df, oil_df, transactions_df, special_days_df
 
-def merge_data_sources(dataframes_tuple)->pd.DataFrame:
-    """Add relevant columns from the auxiliary dataframes into a features dataset, be it the train set or the test set."""
-    features_df, stores_df, oil_df, transactions_df, special_days_df = dataframes_tuple
-    full_features_df = features_df.merge(oil_df, on='date',how='left')
-    full_features_df = full_features_df.merge(stores_df, on=['store_nbr'], how='left')
-    full_features_df = full_features_df.merge(special_days_df, on='date', how='left')
-    full_features_df = full_features_df.merge(transactions_df, on=['date', 'store_nbr'], how='left')
+
+def rename_raw_dfs_cols(dfs:TimeSeriesForecastDataframes) ->TimeSeriesForecastDataframes:
+    """Rename the columns of the raw dataframes so they are more easily understandable
+       Please note that while usually its a good idea to require the raw values as parameters instead of a dataclass to provide more flexibility
+       Here we need to have a single variable, the input X as parameter, since this method will be part of the scikitlearn pipeline.
+       And so we use a dataclass instead.
+    """
+    base_xy_df = dfs.base_xy_df.rename(columns={'family':'product_family', 'onpromotion':'products_of_family_on_promotion'})
+    oil_df = dfs.oil_df.rename(columns={'dcoilwtico':'oil_price'})
+    stores_df = dfs.stores_df.rename(columns={'type':'store_type', 'cluster':'store_cluster', 'city':'store_city', 'state':'store_state'})
+    transactions_df = dfs.transactions_df.rename(columns={'transactions':'all_products_transactions'})
+    special_days_df = dfs.special_days_df.rename(columns={'type':'day_type', 'locale':'special_day_locale_type', 'locale_name':'special_day_locale','description':'special_day_reason', 'transferred':'special_day_transferred'})
+
+    return TimeSeriesForecastDataframes(base_xy_df, stores_df, oil_df, transactions_df, special_days_df)
+
+def merge_data_sources(dfs:TimeSeriesForecastDataframes)->pd.DataFrame:
+    """Add relevant columns from the auxiliary dataframes into a features dataset, be it the train set or the test set.
+       Please note that while usually its a good idea to have the required variables as parameters instead of a dataclass to provide more flexibility
+       Here we need to have a single variable, the input X as parameter, since this method will be part of the scikitlearn pipeline.
+       And so we use a dataclass instead.
+    """
+    full_features_df = dfs.base_xy_df.merge(dfs.oil_df, on='date',how='left')
+    full_features_df = full_features_df.merge(dfs.stores_df, on=['store_nbr'], how='left')
+    full_features_df = full_features_df.merge(dfs.special_days_df, on='date', how='left')
+    full_features_df = full_features_df.merge(dfs.transactions_df, on=['date', 'store_nbr'], how='left')
     return full_features_df
 
 def reorder_features_dataset(features_df):
@@ -50,15 +78,15 @@ def reorder_features_dataset(features_df):
                 'days_since_start', 'day_of_week','day_of_month', 'is_15th', 'is_last_day_of_month', 'day_of_year',  
                 'day_type', 'special_day_reason', 'special_day_offset', 'special_day_transferred', 'special_day_reason_subtype', 'special_day_locale_type', 'special_day_locale',
                 'oil_price', 'all_products_transactions', 
-                'product_family', 'products_of_family_on_promotion'
+                'product_family', 'products_of_family_on_promotion',
+                'sales'
             ]]
 
-def one_hot_encode_necessary_features(features_df, names_of_columns_to_ohe): #TODO make it take the columns to encode as parameter. or even better, make it be done using scklearn one hot encoder. Or even be
+def one_hot_encode_necessary_features(features_df, names_of_columns_to_ohe): #TODO make it be done using scklearn one hot encoder?
     """One hot encodes the columns, using their name as prefix, and adding them into the same place the original was, while removing the original """
-                    #holiday_transferred may be better vectorized. Day type might be too. holiday_locale_type too.
-                    #This is because their values might have meaning in the order.
+    #holiday_transferred may be better vectorized. Day type might be too. holiday_locale_type too.
+    #This is because their values might have meaning in the order.
     
-    print('test')
     #features_df.store_cluster = features_df.store_cluster.astype('int32')
     print(f'Columns in the  features_df of one_hot_encode_necessary features are \n {features_df.columns}')
     
@@ -74,11 +102,9 @@ def one_hot_encode_necessary_features(features_df, names_of_columns_to_ohe): #TO
         features_df = pd.concat([columns_before_col_to_ohe, one_hot_encoded_column, columns_after_col_to_ohe], axis=1)
 
     return features_df
-    #TODO #return the dataset and the references
 
 def process_numerical_features(features_df, normalizers, is_test_data): #Should take the normalizer as parameter.
     """Either normalize or standardize variables depending on their distribution. Also handle missing values where necessary. """
-    print(features_df.columns)
     numerical_variable_names = ['oil_price', 'all_products_transactions']
 
     #Normalization is a scaling technique in which values are shifted and rescaled so that they end up ranging between 0 and 1. It is also known as Min-Max scaling.
@@ -92,6 +118,14 @@ def process_numerical_features(features_df, normalizers, is_test_data): #Should 
 
     return features_df
     #TODO #return the dataset and the normalizer
+
+def fill_missing_transactions(features_df):
+    """Fill transactions missing values with 0. Since it seems they weren't registered when the store didn't exist 
+       Let the model know we filled it by adding a feature indicating it.
+    """
+    features_df['all_transactions_filled'] = features_df.all_products_transactions.isna()
+    features_df.all_products_transactions = features_df.all_products_transactions.fillna(0)
+    return features_df
 
 def fill_missing_oil_values(features_df):
     # Oil price highly varies over time, making average imputing inaddecuate.
@@ -223,6 +257,15 @@ def rolling_window_dataset(df:pd.DataFrame, window_size):
     #     },
     #     axis=1)
 
+def drop_target(df:pd.DataFrame):
+    """Drop the target for prediction from the values
+       It is convenient/necessary for having windowing inside the pipeline
+       But must be droped for the model to be valid.
+       This method is used by the pipeline to achieve that.
+    """
+    return df.drop(columns='sales')
+
+
 #perform fourier transform?
 #Inpute missing values in other columns? 
 
@@ -236,7 +279,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LinearRegression
 
-def create_pipeline(stores_df, oil_df, transactions_df, special_days_df, window_size=3, verbose=False):
+def create_pipeline(window_size=3, verbose=False):
     """Create a pipeline for data processing
        Keep in mind that pipelines are extremely practical, and easy to debug.
        You can call parts of the pipeline for debugging purposes by adding a list slicer next to it, for example pipeline[:1].fit_transform(dataset) or by name of the step.
@@ -247,9 +290,10 @@ def create_pipeline(stores_df, oil_df, transactions_df, special_days_df, window_
     numerical_features_to_min_max_scale = ['oil_price', 'all_products_transactions']
 
     pipeline = Pipeline([
-        ('rename_columns', FunctionTransformer(rename_raw_dfs_cols, kw_args={'stores_df': stores_df, 'oil_df': oil_df, 'transactions_df': transactions_df, 'special_days_df': special_days_df})),
+        ('rename_columns', FunctionTransformer(rename_raw_dfs_cols)),
         ('merge_dataframes', FunctionTransformer(merge_data_sources)), #, kw_args={'stores_df': stores_df, 'oil_df': oil_df, 'transactions_df': transactions_df, 'special_days_df': special_days_df}
         ('fill_missing_oil_values', FunctionTransformer(fill_missing_oil_values)), #Could be achievable with sklearn most likely
+        ('fill_missing_transactions', FunctionTransformer(fill_missing_transactions)),
         ('refine_special_day_reason', FunctionTransformer(refine_special_day_reason)), #Isnt placed where the column came from.
         ('replace_date_with_date_related_columns', FunctionTransformer(replace_date_with_date_related_columns)), #Careful, moving calling this earlier could be problematic since it eliminates date column.
         ('reorder_features', FunctionTransformer(reorder_features_dataset)),
@@ -259,6 +303,7 @@ def create_pipeline(stores_df, oil_df, transactions_df, special_days_df, window_
             ('prepare_categorical_columns', FunctionTransformer(one_hot_encode_necessary_features, kw_args={'names_of_columns_to_ohe': cat_cols_to_ohe}), cat_cols_to_ohe)
         ], remainder='passthrough', sparse_threshold=0, n_jobs=3, verbose_feature_names_out=False).set_output(transform='pandas')),
         ('window_dataset', FunctionTransformer(rolling_window_dataset, kw_args={'window_size': window_size})),
+        ('drop_target', FunctionTransformer(drop_target)),
         #,
         ('model', LinearRegression())
     ], verbose=verbose)
