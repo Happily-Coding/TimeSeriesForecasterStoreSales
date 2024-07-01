@@ -229,7 +229,7 @@ def refine_special_day_reason(features_df):
 def replace_date_with_date_related_columns(features_df):
     """"Removes date, and adds many date_related_columns """
     #Providing a date_time format speeds the method up.https://www.kaggle.com/code/kuldeepnpatel/to-datetime-is-too-slow-on-large-dataset
-    features_df['date'] = pd.to_datetime(features_df['date'],format='%Y-%M-%d')#%Y-%M-%d # = yyyy-mm-dd, ex= 2013-01-21
+    features_df['date'] = pd.to_datetime(features_df['date'],format='%Y-%m-%d')#%Y-%m-%d # = yyyy-mm-dd, ex= 2013-01-21
     #Calculate the absolute date (from unix epoch), which is a standard start date used by many siystems and libraries working with time series data.
     #While this would work its probably worth for the nn to learn.
     #UNIX_EPOCH = pd.Timestamp("1970-01-01")
