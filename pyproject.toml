@@ -9,6 +9,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12" #For data analysis and ml
 pandas = "^2.2.0" #For data loading and transformation
+pyspark = "^3.5.1" #For industry standard data loading and transformation
 scikit-learn = "^1.4.0" #For building data and ml pipelines
 xgboost = "^2.0.3" #For simple but effective ml via gradient boosted decision tree forests. Could potentially be a dev dependancy since the packaged model shouldnt need it.
 hvplot = "^0.10.0" #For creating high performance interactive graphs with little boiler plate code for graph creation
@@ -17,4 +18,5 @@ ipykernel = "^6.29.4" #To run the notebooks inside the venv, using vs code.
 ipywidgets = "^8.1.3" #For making ui for serverless interactions with bokeh plots (for example sliders, selection boxes, etc)
 jupyter-bokeh = "^4.0.4" #For making bokeh serverless interactive plots work in notebooks
 kaggle = "^1.6.5" #For getting the competition dataset programatically
-
+psycopg = {extras = ["binary", "pool"], version = "^3.1.19"}
+sqlalchemy = "^2.0.31"
