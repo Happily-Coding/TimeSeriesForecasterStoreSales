@@ -14,8 +14,10 @@ from df_utils import find_matching_rows, split_dataframe_sequentially
 from train_test_splitting_utils import TrainTestSplit, make_kfold_train_test_splits
 from itertools import chain
 from pyspark.ml.feature import VectorAssembler, MinMaxScaler
-from pyspark.ml import Pipeline
-from spark_utils import ColumnSelector
+from pyspark.ml import Pipeline, Transformer
+from spark_utils import ColumnDropper, ColumnSelector, VectorFirstValueExtractor
+from pyspark.sql.types import FloatType
+from typing import LiteralString
 
 @dataclass
 class EngineerableFeatureGroup:
@@ -30,12 +32,19 @@ def create_oil_prices_feature_group() -> EngineerableFeatureGroup:
     base_column_selector = ColumnSelector(['date','oil_price']) #Could be a dropper for columns in output columns instead. or error handling if its possible for existing columns
     assembler = VectorAssembler(inputCols=['oil_price'],outputCol='oil_price_vect', handleInvalid='keep') #Make sure null oil prices dont prevent the pipeline from being fit
     scaler = MinMaxScaler(inputCol='oil_price_vect', outputCol="oil_price_scaled_0_to_1")
-    pipeline = Pipeline(stages=[base_column_selector, assembler, scaler])
+    unvectorizer = VectorFirstValueExtractor([
+        ('oil_price_scaled_0_to_1', float, FloatType())
+        
+    ])
+    dropper = ColumnDropper(['oil_price_vect']) #TODO 
+    
+
+    pipeline = Pipeline(stages=[base_column_selector, assembler, scaler, unvectorizer, dropper])
     
     return EngineerableFeatureGroup(
         pipeline,
         ['oil_price_vect', 'oil_price_scaled_0_to_1'],
-        ['oil_price_vect INTEGER []', 'oil_price_scaled_0_to_1 FLOAT []'],
+        ['oil_price_vect FLOAT []', 'oil_price_scaled_0_to_1 FLOAT'],
         ['date'],
         get_sql_table_name_of_dataset_of_name('oil_price_by_date')
     )

@@ -1,4 +1,5 @@
 #CURRENTLY TESTING EACH METHOD TO MAKE SRUE THEY WORK
+import pyspark
 import data_engineering_management
 from data_engineering_management import DataEngineeringManager
 import os
@@ -51,8 +52,10 @@ current_oil_data.show(2)
 transformed_oil_data = oil_features.pipeline.fit(current_oil_data).transform(current_oil_data)
 transformed_oil_data.show(2)
 
-data_engineering_manager.store_engineered_features(oil_features, transformed_oil_data)
+
+#data_engineering_manager.store_engineered_features(oil_features, transformed_oil_data)
 
 #engineer_features_and_store(oil_features, current_oil_dataset)
 
 #data_engineering_manager.engineer_and_store_all_features()
+
