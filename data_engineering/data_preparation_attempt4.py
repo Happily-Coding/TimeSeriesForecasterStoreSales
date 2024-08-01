@@ -167,7 +167,7 @@ def process_numerical_features(features_df, normalizers, is_test_data): #Should 
     #MinMaxScaler is a scikitlearn normalizer.
 
     for variable_name in numerical_variable_names: #TODO MAKE IT CHECK IF ITS TEST AND TRANSFORM INSTEAD OF FIT TRANSFORM
-        features_df[variable_name + '_standardized'] = normalizers[variable_name].fit_transform(features_df[variable_name])
+        features_df[variable_name + '_normalized'] = normalizers[variable_name].fit_transform(features_df[variable_name])
         #features_df[variable_name + '_normalized'] = normalizers[variable_name].fit_transform(features_df[variable_name]) #hadd double brakcets
 
 
