@@ -20,3 +20,4 @@ jupyter-bokeh = "^4.0.4" #For making bokeh serverless interactive plots work in 
 kaggle = "^1.6.5" #For getting the competition dataset programatically
 psycopg = {extras = ["binary", "pool"], version = "^3.1.19"}
 sqlalchemy = "^2.0.31"
+python-dotenv = "^1.0.1"
