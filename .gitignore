@@ -1,8 +1,6 @@
 poetry.lock
 .ipynb_checkpoints/Untitled-checkpoint.ipynb
-__pycache__/data_preparation_attempt4.cpython-311.pyc
-__pycache__/data_preparation_utils.cpython-311.pyc
-db_settings.ini
 EDA_backup.rar
 env_backup.rar
 data_engineering/db_settings.env
+__pycache__/
