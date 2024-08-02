@@ -1,0 +1,89 @@
+""" A file containing the db_interface that should be used,
+    and its definition containing the logic making it work.
+"""
+import psycopg
+#TODO rename, split, or remove create_engineering_user_if... from sql_utils
+import sql_utils
+from sql_utils import create_postgres_db
+class DBInterface:
+    """
+    A class to allow modifiying our postgres database
+    - Without coupling other classes to a particular database implementation,
+        - allowing to change only this class if the implementation changes
+        - allowing usage of this class without having to know its inner workings.
+        - allowing us to keep the db configuration/credentials in a single place.
+            - preventing other classes from needing to obtain it.
+    """
+    def __init__(
+        self,
+        db_host,
+        db_port,
+        db_admin_user,
+        db_admin_password,
+        db_data_engineer_user,
+        db_data_engineer_password,
+        db_name
+        ):
+        self.db_host = db_host
+        self.db_port = db_port
+        self.db_admin_user = db_admin_user
+        self.db_admin_password = db_admin_password
+        self.db_data_engineer_user = db_data_engineer_user
+        self.db_data_engineer_password = db_data_engineer_password
+        self.db_name = db_name
+    
+    def make_data_engineering_connection(self):
+        return psycopg.connect(f"host={self.db_host} port={self.db_port} dbname={self.db_name} user={self.db_data_engineer_user} password={self.db_data_engineer_password}")
+    
+    def make_database_administrative_connection(self):
+        return psycopg.connect(f"host={self.db_host} port={self.db_port} user={self.db_admin_user} password={self.db_admin_password} dbname={self.db_name}")
+        
+    def create_db(self):
+        create_postgres_db(self.db_host, self.db_port, self.db_admin_user, self.db_admin_password, self.db_name)
+
+    def create_engineering_user_if_not_exists_and_allowed(self):
+        try:
+            administrative_connection = self.make_database_administrative_connection()
+            sql_utils.create_engineering_user_if_not_exists_and_allowed(
+                administrative_connection,
+                self.db_data_engineer_user,
+                self.db_data_engineer_password,
+                self.db_name
+                )
+            administrative_connection.close()
+        except Exception as e:
+            print(
+                f"""
+                There was a problem while connecting to the database server or creating the database:
+                {e}
+                """
+            )
+        else:
+            print(f'Sucessfully created the postgres db: {self.db_name} at host={self.db_host} port={self.db_port} and the postgres user: {self.db_data_engineer_user}')
+    
+    def execute_engineering_queries(self, queries, verbose=True):
+        engineering_connection = self.make_data_engineering_connection()
+        sql_utils.execute_queries(queries, engineering_connection)
+        engineering_connection.close()
+        
+        if verbose:
+            print(f'Sucesfully created the tables in host={self.db_host} port={self.db_port} db_name={self.db_name} . Queries used:')
+            for query in queries: #Print the queries in an easily readable format without \n symbols
+                print(query)
+        
+    
+    
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv('.\db_settings.env') #Load the database configuration into
+db_interface = DBInterface(
+    os.getenv('db_host'),
+    os.getenv('db_port'),
+    os.getenv('db_admin_user'),
+    os.getenv('db_admin_password'),
+    os.getenv('db_data_engineer_user'),
+    os.getenv('db_data_engineer_password'),
+    os.getenv('db_name')
+)
