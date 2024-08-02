@@ -123,7 +123,6 @@ def make_update_columns_with_values_statement(table_to_store_in:str, columns_to_
     #Add col_name = %, col_name2 = %s ... %s will be replaced later by values
     for column_to_store_name in columns_to_store:
         update_query = update_query + f' {column_to_store_name} = %s,'
-        
     update_query = update_query[:-1] #remove trailing coma.
     update_query = cast(LiteralString, update_query)
     
@@ -138,7 +137,14 @@ def make_where_each_column_equals_values_statement(identity_columns:Iterable[str
     where_statement = 'WHERE '
     for identity_column in identity_columns:
         where_statement = where_statement + f'{identity_column} = %s, '
-    where_statement = where_statement[:-1] #remove trailing coma
+    where_statement = where_statement[:-2] #remove trailing coma and space
     where_statement = cast(LiteralString, where_statement)
     return where_statement
-    
+
+def create_postgres_db(db_host, db_port, db_admin_user, db_admin_password, db_name):
+    database_server_connection = psycopg.connect(f"host={db_host} port={db_port} user={db_admin_user} password={db_admin_password}")
+    database_server_connection.autocommit = True
+
+    create_db_query = f'CREATE DATABASE {db_name}'
+    execute_query(create_db_query, database_server_connection)
+    database_server_connection.close()

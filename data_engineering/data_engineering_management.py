@@ -43,8 +43,8 @@ def create_oil_prices_feature_group() -> EngineerableFeatureGroup:
     
     return EngineerableFeatureGroup(
         pipeline,
-        ['oil_price_vect', 'oil_price_scaled_0_to_1'],
-        ['oil_price_vect FLOAT []', 'oil_price_scaled_0_to_1 FLOAT'],
+        ['oil_price_scaled_0_to_1'],#'oil_price_vect'
+        [ 'oil_price_scaled_0_to_1 FLOAT'],#'oil_price_vect FLOAT []',
         ['date'],
         get_sql_table_name_of_dataset_of_name('oil_price_by_date')
     )
