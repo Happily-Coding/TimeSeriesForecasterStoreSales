@@ -32,6 +32,7 @@ class DBInterface:
         self.db_data_engineer_password = db_data_engineer_password
         self.db_name = db_name
     
+    #TODO: verify if its worth adding a "try except raise from" to connect or if the original message is clear enough.
     def make_data_engineering_connection(self):
         return psycopg.connect(f"host={self.db_host} port={self.db_port} dbname={self.db_name} user={self.db_data_engineer_user} password={self.db_data_engineer_password}")
     
@@ -41,7 +42,7 @@ class DBInterface:
     def create_db(self):
         create_postgres_db(self.db_host, self.db_port, self.db_admin_user, self.db_admin_password, self.db_name)
 
-    def create_engineering_user_if_not_exists_and_allowed(self):
+    def create_engineering_user_if_not_exists_and_allowed(self, verbose=True):
         try:
             administrative_connection = self.make_database_administrative_connection()
             sql_utils.create_engineering_user_if_not_exists_and_allowed(
@@ -51,15 +52,11 @@ class DBInterface:
                 self.db_name
                 )
             administrative_connection.close()
-        except Exception as e:
-            print(
-                f"""
-                There was a problem while connecting to the database server or creating the database:
-                {e}
-                """
-            )
+        except Exception as ex:
+            raise Exception('There was a problem creating a database') from ex
         else:
-            print(f'Sucessfully created the postgres db: {self.db_name} at host={self.db_host} port={self.db_port} and the postgres user: {self.db_data_engineer_user}')
+            if verbose:
+                print(f'Sucessfully created the postgres db: {self.db_name} at host={self.db_host} port={self.db_port} and the postgres user: {self.db_data_engineer_user}')
     
     def execute_engineering_queries(self, queries, verbose=True):
         engineering_connection = self.make_data_engineering_connection()
