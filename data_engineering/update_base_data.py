@@ -1,7 +1,7 @@
 from base_data_management import BaseDataManager
-from db_connector import spark, data_engineering_connection, spark_sql_options
+from db_connector import spark, spark_sql_options
 
-base_data_manager = BaseDataManager(spark, spark_sql_options, data_engineering_connection)
+base_data_manager = BaseDataManager(spark, spark_sql_options)
 base_data_manager.update_all_base_data()
 
 #create_last_row_table_query = f'''
