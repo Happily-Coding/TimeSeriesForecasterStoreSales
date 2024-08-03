@@ -34,10 +34,10 @@ class DBInterface:
         self.db_name = db_name
     
     #TODO: verify if its worth adding a "try except raise from" to connect or if the original message is clear enough.
-    def make_data_engineering_connection(self):
+    def _make_data_engineering_connection(self):
         return psycopg.connect(f"host={self.db_host} port={self.db_port} dbname={self.db_name} user={self.db_data_engineer_user} password={self.db_data_engineer_password}")
     
-    def make_database_administrative_connection(self):
+    def _make_database_administrative_connection(self):
         return psycopg.connect(f"host={self.db_host} port={self.db_port} user={self.db_admin_user} password={self.db_admin_password} dbname={self.db_name}")
         
     def create_db(self):
@@ -45,7 +45,7 @@ class DBInterface:
 
     def create_engineering_user_if_not_exists_and_allowed(self, verbose=True):
         try:
-            administrative_connection = self.make_database_administrative_connection()
+            administrative_connection = self._make_database_administrative_connection()
             sql_utils.create_engineering_user_if_not_exists_and_allowed(
                 administrative_connection,
                 self.db_data_engineer_user,
@@ -60,7 +60,7 @@ class DBInterface:
                 print(f'Sucessfully created the postgres db: {self.db_name} at host={self.db_host} port={self.db_port} and the postgres user: {self.db_data_engineer_user}')
     
     def execute_engineering_queries(self, queries, verbose=True):
-        engineering_connection = self.make_data_engineering_connection()
+        engineering_connection = self._make_data_engineering_connection()
         sql_utils.execute_queries(queries, engineering_connection)
         engineering_connection.close()
         
@@ -74,7 +74,7 @@ class DBInterface:
         Executes efficiently a query that needs to be applied to multiple rows with diferent values
         The most common examples being ALTER and UPDATE queries
         """
-        engineering_connection = self.make_data_engineering_connection()
+        engineering_connection = self._make_data_engineering_connection()
         with engineering_connection.cursor() as cursor: #Automatically close the cursor when done
             cursor.executemany(query, values)
             engineering_connection.commit()
