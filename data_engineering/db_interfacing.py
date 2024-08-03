@@ -1,6 +1,7 @@
 """ A file containing the db_interface that should be used,
     and its definition containing the logic making it work.
 """
+from typing import Iterable, LiteralString
 import psycopg
 #TODO rename, split, or remove create_engineering_user_if... from sql_utils
 import sql_utils
@@ -67,6 +68,17 @@ class DBInterface:
             print(f'Sucesfully created the tables in host={self.db_host} port={self.db_port} db_name={self.db_name} . Queries used:')
             for query in queries: #Print the queries in an easily readable format without \n symbols
                 print(query)
+    
+    def execute_multi_valued_query(self, query:LiteralString, values:Iterable):
+        """
+        Executes efficiently a query that needs to be applied to multiple rows with diferent values
+        The most common examples being ALTER and UPDATE queries
+        """
+        engineering_connection = self.make_data_engineering_connection()
+        with engineering_connection.cursor() as cursor: #Automatically close the cursor when done
+            cursor.executemany(query, values)
+            engineering_connection.commit()
+            engineering_connection.close()
         
     
     
