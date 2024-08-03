@@ -8,6 +8,7 @@ from pyspark.sql import DataFrame, Column
 from pyspark.sql import functions as F
 from pyspark.sql.types import FloatType, DataType
 from pyspark.ml.functions import vector_to_array
+from pyspark.sql import SparkSession
                                                                   
 class ColumnSelector(Transformer):
     """A custom transformer that selects some columns from the original dataframe
@@ -106,3 +107,8 @@ transformed_oil_data_single_values = transformed_oil_data.withColumn(
     )
 """
 
+
+def get_current_data_in_sql_table(spark:SparkSession, spark_sql_options:dict[str,str], table_name:str):
+    """Get the data in a sql table as a lazy spark dataframe."""
+    stored_data = spark.read.format('jdbc').options(**spark_sql_options).option('dbtable', table_name).load()
+    return stored_data
