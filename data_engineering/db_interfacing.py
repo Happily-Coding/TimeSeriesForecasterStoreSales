@@ -59,6 +59,11 @@ class DBInterface:
             if verbose:
                 print(f'Sucessfully created the postgres db: {self.db_name} at host={self.db_host} port={self.db_port} and the postgres user: {self.db_data_engineer_user}')
     
+    def create_table_columns_if_not_exist(self, table_name, sql_column_strings:Iterable[str]):
+        connection = self._make_data_engineering_connection()
+        sql_utils.create_table_columns_if_not_exist(table_name, sql_column_strings, connection)
+        connection.close()
+    
     def execute_engineering_queries(self, queries, verbose=True):
         engineering_connection = self._make_data_engineering_connection()
         sql_utils.execute_queries(queries, engineering_connection)
@@ -79,7 +84,7 @@ class DBInterface:
             cursor.executemany(query, values)
             engineering_connection.commit()
             engineering_connection.close()
-        
+    
     
     
 
