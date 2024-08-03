@@ -18,6 +18,7 @@ from pyspark.ml import Pipeline, Transformer
 from spark_utils import ColumnDropper, ColumnSelector, VectorFirstValueExtractor
 from pyspark.sql.types import FloatType
 from typing import LiteralString
+from db_interfacing import db_interface #TODO pass into constructor?
 
 @dataclass
 class EngineerableFeatureGroup:
@@ -36,7 +37,7 @@ def create_oil_prices_feature_group() -> EngineerableFeatureGroup:
         ('oil_price_scaled_0_to_1', float, FloatType())
         
     ])
-    dropper = ColumnDropper(['oil_price_vect']) #TODO 
+    dropper = ColumnDropper(['oil_price_vect'])
     
 
     pipeline = Pipeline(stages=[base_column_selector, assembler, scaler, unvectorizer, dropper])
@@ -75,10 +76,9 @@ def create_store_feature_group() -> EngineerableFeatureGroup:
     #CREO QUE EL ENGINEERED FEATURE GROUP DEBERIA TENER UN METODO PARA GUARDAR SU INFO. POR OTRO LADO podria tomar un componente que se encargue del storage como parametro y simplemente callearlo.
 
 class DataEngineeringManager:
-    def __init__(self, spark:SparkSession, spark_sql_options:dict[str,str], sql_connection:Connection):
+    def __init__(self, spark:SparkSession, spark_sql_options:dict[str,str]):
         self.spark = spark
         self.spark_sql_options = spark_sql_options
-        self.sql_connection = sql_connection
 
     #There are pipelines that generate a pyspark dataframe
     #Where they are created, they are called, and call a method to store their engineered columns in the dataframe with UPDATE, 
@@ -102,23 +102,21 @@ class DataEngineeringManager:
         Identifies the rows to update with the value of the identity columns inside the df_with_values_to_store.
         TODO Most of the logic of this method could be reused and probably should be moved to sql_utils.
         """
-        with self.sql_connection.cursor() as cursor: #Automatically close the cursor when done
-            update_statement = make_update_columns_with_values_statement(table_to_store_in, columns_to_store)
-            where_statement = make_where_each_column_equals_values_statement(identity_columns)
-            full_statement = f'{update_statement} {where_statement}'
-            
-            #Prepare the list of columns we need, in the order we need it to replace %s correctly.
-            names_of_columns_in_required_order = [*chain(columns_to_store, identity_columns)]
-            
-            #Get a view of the dataframe with the columns we need in the order we need them to replace %s
-            df_with_values_to_store_in_order = df_with_values_to_store.select(names_of_columns_in_required_order)
-            
-            #Get the values used to replace the placeholders
-            column_values = df_with_values_to_store_in_order.collect() #Might want to limit how much of the dataset to collect here
-            
-            #Execute the sql query to update the column values.
-            cursor.executemany(full_statement, column_values)
-            self.sql_connection.commit()
+        update_statement = make_update_columns_with_values_statement(table_to_store_in, columns_to_store)
+        where_statement = make_where_each_column_equals_values_statement(identity_columns)
+        full_statement = f'{update_statement} {where_statement}'
+        
+        #Prepare the list of columns we need, in the order we need it to replace %s correctly.
+        names_of_columns_in_required_order = [*chain(columns_to_store, identity_columns)]
+        
+        #Get a view of the dataframe with the columns we need in the order we need them to replace %s
+        df_with_values_to_store_in_order = df_with_values_to_store.select(names_of_columns_in_required_order)
+        
+        #Get the values used to replace the placeholders
+        column_values = df_with_values_to_store_in_order.collect() #Might want to limit how much of the dataset to collect here
+        
+        #Execute the sql query to update the column values.
+        db_interface.execute_multi_valued_query(full_statement, column_values)
 
     def get_linked_train_test_split(self, linked_dataset_name:str, main_train_test_split:TrainTestSplit, matching_columns:dict[str,str]):
         """
@@ -150,10 +148,9 @@ class DataEngineeringManager:
                 cross_val_folds.test_data.write.format('jdbc').options(**self.spark_sql_options).option('dbtable', test_fold_storage_name).save(mode='overwrite')
         
     def store_engineered_features(self, feature_group:EngineerableFeatureGroup, engineered_features:DataFrame):
-        create_table_columns_if_not_exist(
+        db_interface.create_table_columns_if_not_exist(
             feature_group.sql_table_to_store_at,
             feature_group.engineered_columns_sql_definitions,
-            self.sql_connection #Warning could be the wrong type since its a dict entry not a direct string.
         )
         self.update_columns(
             feature_group.sql_table_to_store_at,
