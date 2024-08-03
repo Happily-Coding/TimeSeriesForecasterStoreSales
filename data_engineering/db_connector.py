@@ -2,8 +2,9 @@
 import pyspark
 import os
 from dotenv import load_dotenv
-from pyspark.sql import SparkSession
 import psycopg
+from pyspark.sql import SparkSession
+
 
 os.environ['PYSPARK_PYTHON'] = '..\.venv\scripts\python.exe'#sys.executable
 #os.environ['PYSPARK_DRIVER_PYTHON'] = '..\.venv\scripts\python.exe' #sys.executable
@@ -19,8 +20,7 @@ db_admin_password = os.getenv('db_admin_password')
 db_data_engineer_user = os.getenv('db_data_engineer_user')
 db_data_engineer_password = os.getenv('db_data_engineer_password')
 db_name = os.getenv('db_name')
-
-
+data_engineering_connection = psycopg.connect(f"host={db_host} port={db_port} dbname={db_name} user={db_data_engineer_user} password={db_data_engineer_password}")
 
 spark_session_builder:SparkSession.Builder = SparkSession.builder # type: ignore <-Ignore a wrong pylance warning, and make type detection work properly
 spark:SparkSession = (
@@ -37,4 +37,3 @@ spark_sql_options = {
     'password': db_data_engineer_password,
     'format':'jdbc'
 }
-data_engineering_connection = psycopg.connect(f"host={db_host} port={db_port} dbname={db_name} user={db_data_engineer_user} password={db_data_engineer_password}")
