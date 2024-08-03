@@ -1,9 +1,17 @@
 import psycopg
-from typing import Iterable, Literal, cast, LiteralString
+from typing import Iterable, cast, LiteralString
 from pyspark.sql import SparkSession, DataFrame as SparkDataFrame
 
 from order_utils import create_desc_filter
 
+def create_postgres_db(db_host, db_port, db_admin_user, db_admin_password, db_name):
+    database_server_connection = psycopg.connect(f"host={db_host} port={db_port} user={db_admin_user} password={db_admin_password}")
+    database_server_connection.autocommit = True
+
+    create_db_query = f'CREATE DATABASE {db_name}'
+    execute_query(create_db_query, database_server_connection)
+    database_server_connection.close()
+    
 def create_db_if_not_exists(dbless_connection, db_name) -> None:
     """ Creates and executes a query to create a database of a certain name if it doesn't exist.
     dbless_connection: A database server connection with autocommit=True, and no database specified.
@@ -140,11 +148,3 @@ def make_where_each_column_equals_values_statement(identity_columns:Iterable[str
     where_statement = where_statement[:-2] #remove trailing coma and space
     where_statement = cast(LiteralString, where_statement)
     return where_statement
-
-def create_postgres_db(db_host, db_port, db_admin_user, db_admin_password, db_name):
-    database_server_connection = psycopg.connect(f"host={db_host} port={db_port} user={db_admin_user} password={db_admin_password}")
-    database_server_connection.autocommit = True
-
-    create_db_query = f'CREATE DATABASE {db_name}'
-    execute_query(create_db_query, database_server_connection)
-    database_server_connection.close()
