@@ -53,17 +53,16 @@ def execute_query(sql_query:str|LiteralString, conn: psycopg.connection.Connecti
     """Executes any query using an existing connection, properly handling errors by preventing changes and printing errors.
        If the query needs autocommit, for example for creating database, make sure that your conn.autocommit = True
     """
-    cur = conn.cursor()
-    try:
-        cur.execute(cast(LiteralString, sql_query))
-    except Exception as e:
-        print(f"{type(e).__name__}: {e}")
-        print(f"Query: {cur._query.query}") # type: ignore
-        conn.rollback()
-    else:
-        conn.commit()
-    
-    cur.close()
+    with conn.cursor() as cur: #Autoclose cursor.
+        try:
+            cur.execute(cast(LiteralString, sql_query))
+        except Exception as e:
+            print(f"{type(e).__name__}: {e}")
+            print(f"Query: {cur._query.query}") # type: ignore
+            conn.rollback()
+        else:
+            conn.commit()
+
 
 
 def execute_queries(sql_queries: Iterable[LiteralString|str], conn: psycopg.connection.Connection) -> None:
