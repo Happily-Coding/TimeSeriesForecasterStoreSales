@@ -6,26 +6,27 @@ from typing import cast, LiteralString
 from csv_sql_dataset_utils import CsvSqlDatasetProperties
 import dataset_properties
 from csv_utils import get_csv_rows_skipping
+from db_interfacing import db_interface #TODO consider assigning it as a variable instead of using directly from import
+#Though its probably unnecesary since you could just overwrite it by assigning a variable in python.
+#It could take a db_interface on the constructor though.
 
 class BaseDataManager:
-    def __init__(self, spark:SparkSession, spark_sql_options:dict[str,str], sql_connection:Connection):
+    def __init__(self, spark:SparkSession, spark_sql_options:dict[str,str]):
         self.spark = spark
         self.spark_sql_options = spark_sql_options
-        self.sql_connection = sql_connection
 
+    #TODO remove remaining sql implementation form here?
     def append_rows_pyscopg(self, table_to_store_in, df:DataFrame):
         """Insert new rows into an existing database table. Requires the table and columns to exist, and all other columns to be nullable/have a default value"""
+        column_names = df.columns
+        update_query = cast(LiteralString, f"INSERT INTO {table_to_store_in} ({', '.join(column_names)}) VALUES ({('%s, '*len(column_names))[:-2]})")
         try:
-            with self.sql_connection.cursor() as cursor: #Automatically close the cursor when done
-                column_names = df.columns
-                update_query = cast(LiteralString, f"INSERT INTO {table_to_store_in} ({', '.join(column_names)}) VALUES ({('%s, '*len(column_names))[:-2]})")
-                print(f'Executing update_query: {update_query}')
-                column_values = df.collect() #Might want to limit how much of the dataset to collect here
-                cursor.executemany(update_query, column_values)
-                self.sql_connection.commit()
+            column_values = df.collect() #Might want to limit how much of the dataset to collect here
+            db_interface.execute_multi_valued_query(update_query, column_values)
         except Exception as e:
-            print(f'There was an error storing database features of table {table_to_store_in}. Will cancel the operation and safely roll back any changes. The error was:\n {e}')
-            self.sql_connection.rollback()
+            print(f'There was an error storing database features of table {table_to_store_in}.
+                  With update query: {update_query}
+                  Will cancel the operation and safely roll back any changes. The error was:\n {e}')
             
     def get_new_csv_data(self, csv_file_path:str, sql_col_csv_equivalents:dict[str,str], current_sql_table_name:str) -> DataFrame:
         stored_data = self.spark.read.format('jdbc').options(**self.spark_sql_options).option('dbtable', current_sql_table_name).load().select(list(sql_col_csv_equivalents.keys()))
