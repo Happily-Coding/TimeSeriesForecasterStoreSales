@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from pyspark.sql import SparkSession
 from pyspark.sql.dataframe import DataFrame
 from typing import Iterable
 from dataset_properties import get_sql_table_name_of_dataset_of_name
@@ -11,8 +10,10 @@ from pyspark.ml.feature import VectorAssembler, MinMaxScaler, OneHotEncoder, Str
 from pyspark.ml import Pipeline
 from spark_utils import ColumnDropper, ColumnSelector, VectorFirstValueExtractor, get_current_data_in_sql_table
 from pyspark.sql.types import FloatType
-from db_interfacing import DBInterface, db_interface #TODO pass into constructor?
-from db_connector import spark, spark_sql_options
+from db_interfacing import DBInterface 
+from spark_interfacing import SparkInterface
+import db_interfacing
+import spark_interfacing
 
 @dataclass
 class FeatureGroupMaterializerImplementation:
@@ -34,23 +35,21 @@ class FeatureGroupStorageHandlerImplementation:
         identity_columns:list[str],
         source_dataset_table_name:str, #May want to change for a component that is a source dataset provider.
         db_interface:DBInterface,
-        spark:SparkSession,
-        spark_sql_options:dict[str,str]
+        spark_interface:SparkInterface
     ):
-        self.db_interface = db_interface
-        self.spark = spark
-        self.spark_sql_options = spark_sql_options
-        self.table_to_store_in = feature_group_table_name
+        self.table_to_store_in_name = feature_group_table_name
         self.columns_to_store = feature_group_columns_to_store
         self.identity_columns = identity_columns
         self.engineered_columns_definition = engineered_columns_definition
         self.source_dataset_table_name = source_dataset_table_name
+        self.db_interface = db_interface
+        self.spark_interface = spark_interface
 
     def get_current_data_in_source_storage(self):
-        return get_current_data_in_sql_table(self.spark, self.spark_sql_options, self.source_dataset_table_name)
+        return self.spark_interface.get_current_data_in_sql_table(self.source_dataset_table_name)
 
     def get_current_data_in_target_storage(self):
-        return get_current_data_in_sql_table(self.spark, self.spark_sql_options, self.table_to_store_in)
+        return self.spark_interface.get_current_data_in_sql_table(self.table_to_store_in_name)
     
     def update_columns(self, df_with_values_to_store:DataFrame):
         """
@@ -58,7 +57,7 @@ class FeatureGroupStorageHandlerImplementation:
         Identifies the rows to update with the value of the identity columns inside the df_with_values_to_store.
         TODO Most of the logic of this method could be reused and probably should be moved to sql_utils.
         """
-        update_statement = make_update_columns_with_values_statement(self.table_to_store_in, self.columns_to_store)
+        update_statement = make_update_columns_with_values_statement(self.table_to_store_in_name, self.columns_to_store)
         where_statement = make_where_each_column_equals_values_statement(self.identity_columns)
         full_statement = f'{update_statement} {where_statement}'
         
@@ -72,7 +71,7 @@ class FeatureGroupStorageHandlerImplementation:
         column_values = df_with_values_to_store_in_order.collect() #Might want to limit how much of the dataset to collect here
         
         #Execute the sql query to update the column values.
-        db_interface.execute_multi_valued_query(full_statement, column_values)
+        self.db_interface.execute_multi_valued_query(full_statement, column_values)
 
 
     def get_values_for_linked_train_test_split(self, linked_table:DataFrame, linked_table_name:str, main_train_test_split:TrainTestSplit, matching_columns:dict[str,str]):
@@ -93,8 +92,8 @@ class FeatureGroupStorageHandlerImplementation:
         return linked_train_test_split
 
     def store_engineered_features(self, engineered_features:DataFrame):
-        db_interface.create_table_columns_if_not_exist(
-            self.table_to_store_in,
+        self.db_interface.create_table_columns_if_not_exist(
+            self.table_to_store_in_name,
             self.engineered_columns_definition,
         )
         self.update_columns(
@@ -108,10 +107,12 @@ class FeatureGroupStorageHandlerImplementation:
                 #Of the original dataset + all the modifications with the feature engineering, which would prove a bit complex and probably unnecesairy
                 # We are yielding control of the creation details here by using spark.
                 train_fold_storage_name = f'{entity_name}_train_cv_fold_{fold_number}_{dataset_name}' #We are just happily ignoring the fold string name.
-                cross_val_folds.train_data.write.format('jdbc').options(**self.spark_sql_options).option('dbtable', train_fold_storage_name).save(mode='overwrite')
+                #Could be moved to spark_utils/interface, but tbh doesnt make much sense. nvm it kinda does TODO do , because you are worring about the implementation of the save place
+                #With the current approach.
+                cross_val_folds.train_data.write.format('jdbc').options(**self.spark_interface.spark_sql_options).option('dbtable', train_fold_storage_name).save(mode='overwrite')
                 
                 test_fold_storage_name = f'test_cv_fold_{fold_number}_{dataset_name}'
-                cross_val_folds.test_data.write.format('jdbc').options(**self.spark_sql_options).option('dbtable', test_fold_storage_name).save(mode='overwrite')
+                cross_val_folds.test_data.write.format('jdbc').options(**self.spark_interface.spark_sql_options).option('dbtable', test_fold_storage_name).save(mode='overwrite')
 
     
 
@@ -133,8 +134,7 @@ def make_standard_feature_group(
     engineered_columns_sql_definitions:list[str], #We could merge this and the following one into a tuple, but its probably not worth it or convenient
     feature_group_storage_table_name:str,
     db_interface:DBInterface,
-    spark:SparkSession,
-    spark_sql_options:dict[str,str]
+    spark_interface:SparkInterface
 ) -> FeatureGroup:
     """A shorthand method to make a feature group using this project's standard implementation for materializing and storage with pyspark and the db_interface."""
     feature_maker = FeatureGroupMaterializerImplementation(
@@ -151,8 +151,7 @@ def make_standard_feature_group(
         identity_columns,
         source_dataset_table_name,
         db_interface,
-        spark,
-        spark_sql_options
+        spark_interface
     )
     feature_group = FeatureGroup(
         feature_maker,
@@ -160,126 +159,86 @@ def make_standard_feature_group(
     )
     return feature_group
         
-
-        
-
-#Might want to have this and other similar ones in engineered feature groups.py or something maybe renamed to Engineerablefeature group or something
-def create_oil_prices_feature_group() -> FeatureGroup:
-    base_column_selector = ColumnSelector(['date','oil_price']) #Could be a dropper for columns in output columns instead. or error handling if its possible for existing columns
-    assembler = VectorAssembler(inputCols=['oil_price'],outputCol='oil_price_vect', handleInvalid='keep') #Make sure null oil prices dont prevent the pipeline from being fit
-    scaler = MinMaxScaler(inputCol='oil_price_vect', outputCol="oil_price_scaled_0_to_1")
-    unvectorizer = VectorFirstValueExtractor([
-        ('oil_price_scaled_0_to_1', float, FloatType())
-        
-    ])
-    dropper = ColumnDropper(['oil_price_vect'])
-    pipeline = Pipeline(stages=[base_column_selector, assembler, scaler, unvectorizer, dropper])
-    
-    oil_feature_group = make_standard_feature_group(
-        'oil_price_by_date',#get_sql_table_name_of_dataset_of_name('oil_price_by_date')
-        ['date'],
-        pipeline,
-        ['oil_price_scaled_0_to_1'],
-        [ 'oil_price_scaled_0_to_1 FLOAT'],
-        'oil_price_by_date',
-        db_interface,
-        spark,
-        spark_sql_options
-    )
-    
-    return oil_feature_group
-
-def create_store_feature_group() -> FeatureGroup:
-    cat_cols = ['city', 'state', 'type', 'cluster']
-    
-    names_of_cat_cols_turned_numeric_names = [f'{cat_col}_numeric' for cat_col in cat_cols]
-    sql_definition_of_cat_cols_turned_numeric = [f'INTEGER {cat_col_numeric_name}' for cat_col_numeric_name in names_of_cat_cols_turned_numeric_names]
-    
-    names_of_cat_cols_ohe = [f'{cat_col}_ohe' for cat_col in cat_cols]
-    sql_definitions_of_cat_cols_ohe = [f'LIST {cat_cols_ohe_name}' for cat_cols_ohe_name in names_of_cat_cols_ohe]
-    
-    #pyspark requires columns to be numerical in order to OHE them. Indexer assigns them a number based on frequency order.
-    columns_indexer = StringIndexer(inputCols=cat_cols, outputCols=names_of_cat_cols_turned_numeric_names)
-    ohe = OneHotEncoder(inputCols=names_of_cat_cols_turned_numeric_names, outputCols=names_of_cat_cols_ohe)
-    pipeline = Pipeline(stages=[columns_indexer, ohe])
-    
-    return make_standard_feature_group(
-        'stores',#get_sql_table_name_of_dataset_of_name('stores')
-        ['id'],
-        pipeline,
-        [*chain(names_of_cat_cols_turned_numeric_names, names_of_cat_cols_ohe)],
-        [*chain(sql_definition_of_cat_cols_turned_numeric, sql_definitions_of_cat_cols_ohe)],
-        'stores',#get_sql_table_name_of_dataset_of_name('stores')
-        db_interface,
-        spark,
-        spark_sql_options
-    )
-
 class DataEngineeringManager:
-    def __init__(self, spark:SparkSession, spark_sql_options:dict[str,str]):
-        self.spark = spark
-        self.spark_sql_options = spark_sql_options
-
-    #Probably doesn't belong to this class, but may be useful elsewhere
-    def get_current_data_in_sql_table(self, table_name:str):
-        """Get the data in a sql table as a lazy spark dataframe."""
-        stored_data = self.spark.read.format('jdbc').options(**self.spark_sql_options).option('dbtable', table_name).load()
-        return stored_data
-    
-    #Probably doesn't belong to this class, but may be useful elsewhere
-    def get_current_data_in_dataset_of_name(self, dataset_name):
-        """Syntactic sugar for get_current)_data_in_sql_table, that gets the sql table name from the dataset properties config."""
-        sql_table_name = get_sql_table_name_of_dataset_of_name(dataset_name)
-        return self.get_current_data_in_sql_table(sql_table_name)
-            
-    #TODO: Refactor. Should probably belong to a unifier entity class, which has a dictionary indicating which datasets it relates too or something.
-    #def get_sales_cross_val_sets(self) -> list[dict[str, TrainTestSplit]]:
-        """
-        Make a crossvalidation set for the entity sale, and use it to also create the crossvalidation set for its dimensions.
-        Its necessary since ML models should be trained exclusively on training data, be it of the fact or the dimension.
-        """
-        """                 
-        data_per_dataset_of_dataset_splits:list[dict[str,TrainTestSplit]] = []
-        for sales_data_split in sales_data_kfold_splits:
-            current_split_data_per_dataset:dict[str,TrainTestSplit] = {}
-            
-            current_split_data_per_dataset['sales_agg_by_date_store_productfamily'] = sales_data_split 
-
-            #Se podrian mover estos metodos a dataset properties y que dejen de ser properties tal vez, aunque no se porque seria auto_referencial, y eso no se puede hacer
-            #Aunque podria usar setters para que no sea auto referencial
-            current_split_data_per_dataset['oil'] = self.get_linked_train_test_split(
-                'oil',
-                sales_data_split,
-                {'date':'date'}
-            )
-            
-            current_split_data_per_dataset['stores'] = self.get_linked_train_test_split(
-                'stores',
-                sales_data_split,
-                {'id':'store_id'}
-            )
-            
-            current_split_data_per_dataset['events_by_date'] = self.get_linked_train_test_split(
-                'events_by_date',
-                sales_data_split,
-                {'date':'date'}
-            )
-            
-            current_split_data_per_dataset['transactions_agg_by_date_store'] = self.get_linked_train_test_split(
-                'events_by_date',
-                sales_data_split,
-                {'date':'date'}
-            )
-            
-            data_per_dataset_of_dataset_splits.append(current_split_data_per_dataset)
+    def __init__(self, db_interface:DBInterface, spark_interface:SparkInterface):
+        self.db_interface= db_interface
+        self.spark_interface = spark_interface
         
-        return data_per_dataset_of_dataset_splits
-        """
+    def make_standard_feature_group(
+        self,
+        source_dataset_table_name:str, #May want to change for a component that is a source dataset provider.
+        identity_columns:list[str],
+        pipeline:Pipeline,
+        engineered_columns_names:list[str],
+        engineered_columns_sql_definitions:list[str], #We could merge this and the following one into a tuple, but its probably not worth it or convenient
+        feature_group_storage_table_name:str,
+    ) -> FeatureGroup:
+        return make_standard_feature_group(
+        source_dataset_table_name, #May want to change for a component that is a source dataset provider.
+        identity_columns,
+        pipeline,
+        engineered_columns_names,
+        engineered_columns_sql_definitions, #We could merge this and the following one into a tuple, but its probably not worth it or convenient
+        feature_group_storage_table_name,
+        self.db_interface,
+        self.spark_interface
+        )
+
+
+    #Might want to have this and other similar ones in engineered feature groups.py or something maybe renamed to Engineerablefeature group or something
+    def create_oil_prices_feature_group(self) -> FeatureGroup:
+        base_column_selector = ColumnSelector(['date','oil_price']) #Could be a dropper for columns in output columns instead. or error handling if its possible for existing columns
+        assembler = VectorAssembler(inputCols=['oil_price'],outputCol='oil_price_vect', handleInvalid='keep') #Make sure null oil prices dont prevent the pipeline from being fit
+        scaler = MinMaxScaler(inputCol='oil_price_vect', outputCol="oil_price_scaled_0_to_1")
+        unvectorizer = VectorFirstValueExtractor([
+            ('oil_price_scaled_0_to_1', float, FloatType())
+            
+        ])
+        dropper = ColumnDropper(['oil_price_vect'])
+        pipeline = Pipeline(stages=[base_column_selector, assembler, scaler, unvectorizer, dropper])
         
+        oil_feature_group = self.make_standard_feature_group(
+            'oil_price_by_date',#get_sql_table_name_of_dataset_of_name('oil_price_by_date')
+            ['date'],
+            pipeline,
+            ['oil_price_scaled_0_to_1'],
+            [ 'oil_price_scaled_0_to_1 FLOAT'],
+            'oil_price_by_date'
+        )
+        
+        return oil_feature_group
+
+
+    def create_store_feature_group(self) -> FeatureGroup:
+        cat_cols = ['city', 'state', 'type', 'cluster']
+        
+        names_of_cat_cols_turned_numeric_names = [f'{cat_col}_numeric' for cat_col in cat_cols]
+        sql_definition_of_cat_cols_turned_numeric = [f'INTEGER {cat_col_numeric_name}' for cat_col_numeric_name in names_of_cat_cols_turned_numeric_names]
+        
+        names_of_cat_cols_ohe = [f'{cat_col}_ohe' for cat_col in cat_cols]
+        sql_definitions_of_cat_cols_ohe = [f'LIST {cat_cols_ohe_name}' for cat_cols_ohe_name in names_of_cat_cols_ohe]
+        
+        #pyspark requires columns to be numerical in order to OHE them. Indexer assigns them a number based on frequency order.
+        columns_indexer = StringIndexer(inputCols=cat_cols, outputCols=names_of_cat_cols_turned_numeric_names)
+        ohe = OneHotEncoder(inputCols=names_of_cat_cols_turned_numeric_names, outputCols=names_of_cat_cols_ohe)
+        pipeline = Pipeline(stages=[columns_indexer, ohe])
+        
+        return make_standard_feature_group(
+            'stores',#get_sql_table_name_of_dataset_of_name('stores')
+            ['id'],
+            pipeline,
+            [*chain(names_of_cat_cols_turned_numeric_names, names_of_cat_cols_ohe)],
+            [*chain(sql_definition_of_cat_cols_turned_numeric, sql_definitions_of_cat_cols_ohe)],
+            'stores',#get_sql_table_name_of_dataset_of_name('stores')
+            self.db_interface,
+            self.spark_interface
+        )
+
+
     def engineer_and_store_all_features(self):
         feature_groups = [
-            create_oil_prices_feature_group(),
-            create_store_feature_group()
+            self.create_oil_prices_feature_group(),
+            self.create_store_feature_group()
         ]
         for feature_group in feature_groups:
             feature_group.engineer_features_and_store()
@@ -291,7 +250,49 @@ class DataEngineeringManager:
         #full_sales_data_sequential_splits = split_dataframe_sequentially(full_sales_data, row_number_col='id', number_of_splits=5)
         #sales_data_kfold_splits = make_kfold_train_test_splits(sequentially_split_dataset=full_sales_data_sequential_splits, split_base_name='sales') #Will make splits named sales_1, sales_2 ...
 
+data_engineering_manager:DataEngineeringManager = DataEngineeringManager(db_interfacing.db_interface, spark_interfacing.spark_interface)
 
-        
-        
+
+#TODO: Refactor. Should probably belong to a unifier entity class, which has a dictionary indicating which datasets it relates too or something.
+#def get_sales_cross_val_sets(self) -> list[dict[str, TrainTestSplit]]:
+"""
+Make a crossvalidation set for the entity sale, and use it to also create the crossvalidation set for its dimensions.
+Its necessary since ML models should be trained exclusively on training data, be it of the fact or the dimension.
+"""
+"""                 
+data_per_dataset_of_dataset_splits:list[dict[str,TrainTestSplit]] = []
+for sales_data_split in sales_data_kfold_splits:
+    current_split_data_per_dataset:dict[str,TrainTestSplit] = {}
     
+    current_split_data_per_dataset['sales_agg_by_date_store_productfamily'] = sales_data_split 
+
+    #Se podrian mover estos metodos a dataset properties y que dejen de ser properties tal vez, aunque no se porque seria auto_referencial, y eso no se puede hacer
+    #Aunque podria usar setters para que no sea auto referencial
+    current_split_data_per_dataset['oil'] = self.get_linked_train_test_split(
+        'oil',
+        sales_data_split,
+        {'date':'date'}
+    )
+    
+    current_split_data_per_dataset['stores'] = self.get_linked_train_test_split(
+        'stores',
+        sales_data_split,
+        {'id':'store_id'}
+    )
+    
+    current_split_data_per_dataset['events_by_date'] = self.get_linked_train_test_split(
+        'events_by_date',
+        sales_data_split,
+        {'date':'date'}
+    )
+    
+    current_split_data_per_dataset['transactions_agg_by_date_store'] = self.get_linked_train_test_split(
+        'events_by_date',
+        sales_data_split,
+        {'date':'date'}
+    )
+    
+    data_per_dataset_of_dataset_splits.append(current_split_data_per_dataset)
+
+return data_per_dataset_of_dataset_splits
+"""
