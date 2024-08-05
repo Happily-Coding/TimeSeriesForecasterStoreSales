@@ -1,3 +1,7 @@
+"""
+For utility methods you should probably use the spark interface, which wraps arround them making them easier to use!
+This file containing some custom transformer definitions, and utility methods for working with pyspark
+"""
 from typing import Iterable, List, Type
 from colorama import init
 from pyspark.sql.functions import udf
@@ -90,7 +94,6 @@ class VectorToArrayTransformer(Transformer):
         return dataset
 
 """ 
-
 transformed_oil_data_arr = transformed_oil_data.withColumn(
     "oil_price_vect", vector_to_array("oil_price_vect")
     )\
@@ -106,7 +109,6 @@ transformed_oil_data_single_values = transformed_oil_data.withColumn(
     .withColumn("oil_price_scaled_0_to_1", vector_to_float("oil_price_scaled_0_to_1")
     )
 """
-
 
 def get_current_data_in_sql_table(spark:SparkSession, spark_sql_options:dict[str,str], table_name:str):
     """Get the data in a sql table as a lazy spark dataframe."""
