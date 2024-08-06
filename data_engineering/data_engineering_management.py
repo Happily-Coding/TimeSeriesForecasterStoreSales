@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pkg_resources import _ProviderFactoryType
 from pyspark.sql.dataframe import DataFrame
 from typing import Iterable
 from dataset_properties import get_sql_table_name_of_dataset_of_name
@@ -243,6 +244,15 @@ class DataEngineeringManager:
         for feature_group in feature_groups:
             feature_group.engineer_features_and_store()
         
+        #Create cross_validation table.
+        #Apply feature engineering to that table. Simply add a parameter to feature_group_maker?
+        
+        #make_sales_entity
+        #full_sales_data = self.get_current_data_in_dataset_of_name(dataset_name='sales')
+        #full_sales_data_sequential_splits = split_dataframe_sequentially(full_sales_data, row_number_col='id', number_of_splits=5)
+        #sales.entity.make_and_store_cross_val_sets(df_splits)
+            #make_cross_val
+        
         #TODO: Instead, make an entity or data_view class in that represents sales, and its related tables, and has the characteristics and methods to create and store them.
         #Keep in mind it will not be related to feature groups directly since it needs all features.
         #At the same time it will be related to feature groups since they will need to be re-created for each split.
@@ -252,6 +262,82 @@ class DataEngineeringManager:
 
 data_engineering_manager:DataEngineeringManager = DataEngineeringManager(db_interfacing.db_interface, spark_interfacing.spark_interface)
 
+
+class PysparkTableProvider():
+    """A provider for data in a table
+    This particular implementation returns data in a pyspark dataframe.
+    """
+    def __init__(
+        self, 
+        name_of_table_to_provide_for:str,
+        spark_interface:SparkInterface
+    ):
+        self.name_of_table_to_provide_for = name_of_table_to_provide_for
+        self.spark_interface = spark_interface
+        
+    def get_data(self) ->DataFrame:
+        return self.spark_interface.get_current_data_in_sql_table(self.name_of_table_to_provide_for)
+        
+
+LINKED DIMENSION ISNT CORRECTLY IMPLEMENTED, it shouldnt take feature groups, it should just take a table provider. 
+In this case it should be a provider for the dimension table. The reason is that feature group wouldnt have all the columns.
+We could likely use just a pysparktable provider with the dimension name.
+class LinkedDimension():
+    """
+        A dimension linked to an entity
+        linked_keys: a dict of key_from_the_dimension:key in the entity.
+    """
+    def __init__(self, dimensional, linked_keys:dict[str,str]):
+        self.dimensional_feature_group = dimensional_feature_group
+        self.linked_keys = linked_keys
+        
+    def get_cross_validation_set(self, entity_cross_val_set:TrainTestSplit):
+        #linked_table:DataFrame, linked_table_name:str, main_train_test_split:TrainTestSplit, matching_columns:dict[str,str]
+        train_matching_rows_of_linked_table = find_matching_rows(linked_table, main_train_test_split.train_data, matching_columns)
+        test_matching_rows_of_linked_table = find_matching_rows(linked_table, main_train_test_split.test_data, matching_columns)
+
+        linked_train_test_split = TrainTestSplit(
+            f'{main_train_test_split.identifier}_{linked_table_name}',
+            train_matching_rows_of_linked_table,
+            test_matching_rows_of_linked_table
+        )
+        return linked_train_test_split
+        
+
+class Entity():
+    """
+    An entity, which has base data in a table, and additional data found in other tables.
+    Since an entity is a unified state of info from multiple tables, when generating a cross_validation_set, all tables need to respect the same split.
+    As of right now the main point of the entity is to be able to create and store crossvalidation sets.
+    """
+    
+    def __init__(
+        self,
+        main_table_provider:PysparkTableProvider,
+        main_table_number_id_cols:str,
+        #dimensions_with_link:tuple[FeatureGroup,dict[str,str]],
+        linked_dimensions:list[LinkedDimension]
+    ):
+        self.main_table_number_id_cols = main_table_number_id_cols
+        self.main_table_provider = main_table_provider
+        self.linked_dimensions = linked_dimensions
+        
+    def make_main_cross_validation_sets(self):
+        """A hard coded implementation to make cross_validation_splits. could be any generic component capable of producing splits"""
+        data = self.main_table_provider.get_data()
+        splits  = split_dataframe_sequentially(
+            data,
+            self.main_table_number_id_cols,
+            5
+        )
+        return splits
+    
+    def get_linked_cross_validation_sets(self, cross_validation_sets):
+        for linked_dimension in linked_dimensions:
+            get_cross_validation_set
+
+    def get_cross_validation_set():
+        
 
 #TODO: Refactor. Should probably belong to a unifier entity class, which has a dictionary indicating which datasets it relates too or something.
 #def get_sales_cross_val_sets(self) -> list[dict[str, TrainTestSplit]]:
