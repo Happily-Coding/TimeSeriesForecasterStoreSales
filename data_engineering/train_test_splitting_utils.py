@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pyspark.sql.dataframe import DataFrame
-from df_utils import concat_spark_dfs
+from df_utils import concat_spark_dfs, find_matching_rows
 from spark_interfacing import SparkInterface
 
 @dataclass
@@ -32,10 +32,17 @@ class TrainTestSplit:
         """
         return self._get_identifier('test')
     
-
+def make_linked_data_split(dimension_table_name, dimension_table, main_split:TrainTestSplit, linked_keys) ->TrainTestSplit:
+    return TrainTestSplit(
+        dimension_table_name,
+        main_split.general_split_type,
+        main_split.fold_id,
+        find_matching_rows(dimension_table, main_split.train_data, linked_keys),
+        find_matching_rows(dimension_table, main_split.test_data, linked_keys),
+    )
     
-
-def make_kfold_train_test_splits(sequentially_split_dataset:list[DataFrame], split_base_name:str) -> list[TrainTestSplit]:
+    
+def make_kfold_train_test_splits(sequentially_split_dataset:list[DataFrame], dataset_name:str) -> list[TrainTestSplit]:
     """Makes Train, Test Kfolds from a sequentially split dataset
     see scikit-learn.org/stable/auto_examples/model_selection/plot_cv_indices.html#visualize-cross-validation-indices-for-many-cv-objects
     """
@@ -46,7 +53,7 @@ def make_kfold_train_test_splits(sequentially_split_dataset:list[DataFrame], spl
         test_split = dataset_splits_to_assign.pop(split_number)
         train_splits = dataset_splits_to_assign
         train_split = concat_spark_dfs(train_splits)
-        k_fold_train_test_split = TrainTestSplit(f'{split_base_name}_{split_number}', train_split, test_split)
+        k_fold_train_test_split = TrainTestSplit(dataset_name, 'kfold',split_number, train_split, test_split)
         k_fold_train_test_splits.append(k_fold_train_test_split)
     
     return k_fold_train_test_splits
