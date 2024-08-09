@@ -105,16 +105,13 @@ class KFoldSplitDataset():
         return split_dataframe_sequentially(self.get_full_base_data(), self.row_number_col, number_of_splits=5)
     
     def get_train_test_splits(self) ->list[TrainTestSplit]:
-        return make_kfold_train_test_splits(self.get_sequential_dataset_parts(), split_base_name=self.source_table_name) #Will make splits named source_table_name_1, source_table_name_2 ...
+        return make_kfold_train_test_splits(self.get_sequential_dataset_parts(), dataset_name=self.source_table_name) #Will make splits named source_table_name_1, source_table_name_2 ...
 
     def store_this_splits(self, splits:list[TrainTestSplit]) -> None:
         for split in splits: #Train test split should probably handle the logic to store, with a method store.
-            train_storage_table_name = f'{split.identifier}_train'
-            split.train_data.write.format('jdbc').options(**self.spark_interface.spark_sql_options).option('dbtable', train_storage_table_name).save(mode='overwrite')
+            self.spark_interface.save_table(split.train_data,split.get_train_identifier()) #Make the split call save_table?
+            self.spark_interface.save_table(split.test_data, split.get_test_identifier()) #Make the split call save_table?
             
-            test_storage_table = f'{split.identifier}_test'
-            split.test_data.write.format('jdbc').options(**self.spark_interface.spark_sql_options).option('dbtable', test_storage_table).save(mode='overwrite')
-
     def store_splits(self) ->None:
         self.store_this_splits(self.get_train_test_splits())
 
@@ -233,7 +230,7 @@ class DataEngineeringManager:
         #Todo make a train test splitter
         
         full_sales_data_sequential_splits = 
-        sales_data_kfold_splits = make_kfold_train_test_splits(sequentially_split_dataset=full_sales_data_sequential_splits, split_base_name='sales') #Will make splits named sales_1, sales_2 ...
+        sales_data_kfold_splits = make_kfold_train_test_splits(sequentially_split_dataset=full_sales_data_sequential_splits, dataset_name='sales') #Will make splits named sales_1, sales_2 ...
 
         #Grab the main dataset > k fold split > grab the splits > 
 
@@ -281,7 +278,7 @@ class KFoldDFSplitter():
         
     def split_df(self, df:DataFrame)->list[TrainTestSplit]:
         sequential_df_parts = split_dataframe_sequentially(df,self.prefix, self.splits)
-        df_kfold_splits = make_kfold_train_test_splits(sequential_df_parts, split_base_name=self.prefix) #Will make splits named sales_1, sales_2 ...
+        df_kfold_splits = make_kfold_train_test_splits(sequential_df_parts, dataset_name=self.prefix) #Will make splits named sales_1, sales_2 ...
         return df_kfold_splits
 
 
@@ -314,37 +311,36 @@ class ReferencedRowsFinder():
         return find_matching_rows(df_to_filter, reference_df, self.referenced_cols)
 
 #Maybe could be called linked dimension, and have a method to store the splits, and maybe even be part of an entity which has multiple linked dimensions.
-class TrainTestSplitter():
-    def __init__(
-        self,
-        dataset_provider:PysparkTableProvider,
-        dataset_splitter:KFoldDFSplitter,
-        dimension_provider:PysparkTableProvider,
-        dimension_name:str,
-        referenced_rows_finder:ReferencedRowsFinder
-    ):
-        self.dataset_provider = dataset_provider
-        self.dataset_splitter = dataset_splitter
-        self.dimension_provider = dimension_provider
-        self.dimension_name = dimension_name
-        self.referenced_rows_finder = referenced_rows_finder
-        #FALTA algo para storear.
+# class TrainTestSplitter():
+#     def __init__(
+#         self,
+#         dataset_provider:PysparkTableProvider,
+#         dataset_splitter:KFoldDFSplitter,
+#         dimension_provider:PysparkTableProvider,
+#         dimension_name:str,
+#         referenced_rows_finder:ReferencedRowsFinder
+#     ):
+#         self.dataset_provider = dataset_provider
+#         self.dataset_splitter = dataset_splitter
+#         self.dimension_provider = dimension_provider
+#         self.dimension_name = dimension_name
+#         self.referenced_rows_finder = referenced_rows_finder
+#         #FALTA algo para storear.
     
-    def make_train_test_splits(self):
-        dataset = self.dataset_provider.get_data()
-        dimension = self.dimension_provider.get_data()
-        splits = self.dataset_splitter.split_df(dataset)
-        dimension_splits = []
-        for dataset_split in splits: #AGAIN, WE ARE STORING TRAIN TEST SPLITS INSTEAD OF USING THEM DIRECTLY!
-            dimension_splits.append(TrainTestSplit(
-                f'{dataset_split.identifier}_{self.dimension_name}',
-                self.referenced_rows_finder.find_referenced_rows(dimension, dataset_split.train_data),
-                self.referenced_rows_finder.find_referenced_rows(dimension, dataset_split.test_data)
-            ))
-        
-        
+#     def make_train_test_splits(self):
+#         dataset = self.dataset_provider.get_data()
+#         dimension = self.dimension_provider.get_data()
+#         splits = self.dataset_splitter.split_df(dataset)
+#         dimension_splits = []
+#         for dataset_split in splits: #AGAIN, WE ARE STORING TRAIN TEST SPLITS INSTEAD OF USING THEM DIRECTLY!
+#             dimension_splits.append(TrainTestSplit(
+#                 f'{dataset_split.identifier}_{self.dimension_name}',
+#                 self.referenced_rows_finder.find_referenced_rows(dimension, dataset_split.train_data),
+#                 self.referenced_rows_finder.find_referenced_rows(dimension, dataset_split.test_data)
+#             ))
 
 
+from train_test_splitting_utils import make_linked_data_split
 class LinkedDimension():
     """
         A dimension linked to an entity
@@ -359,15 +355,17 @@ class LinkedDimension():
     def get_cross_validation_set(self, entity_cross_val_split:TrainTestSplit):
         #linked_table:DataFrame, linked_table_name:str, main_train_test_split:TrainTestSplit, matching_columns:dict[str,str]
         dimension_table = self.spark_interface.get_current_data_in_sql_table(self.dimension_table_name)
-        train_matching_rows_of_linked_table = find_matching_rows(dimension_table, entity_cross_val_split.train_data, self.linked_keys)
-        test_matching_rows_of_linked_table = find_matching_rows(dimension_table, entity_cross_val_split.test_data, self.linked_keys)
-
-        linked_train_test_split = TrainTestSplit(
-            f'{main_train_test_split.identifier}_{linked_table_name}', #lo correcto seria el identifier del train test split sin table name. 
-            train_matching_rows_of_linked_table,
-            test_matching_rows_of_linked_table
+        linked_train_test_split = make_linked_data_split(
+            self.dimension_table_name,
+            dimension_table,
+            entity_cross_val_split,
+            self.linked_keys
         )
         return linked_train_test_split
+
+    def make_and_store_cross_validation_set(self, entity_cross_val_split:TrainTestSplit):
+        self.get_cross_validation_set(entity_cross_val_split)
+        spark_interface.write()
         
 
 # class Entity():
