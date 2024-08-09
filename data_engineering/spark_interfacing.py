@@ -1,4 +1,4 @@
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrame
 import spark_utils
 
 class SparkInterface:
@@ -10,6 +10,10 @@ class SparkInterface:
     def get_current_data_in_sql_table(self, table_name:str):
         """Get the data in a sql table as a lazy spark dataframe."""
         return spark_utils.get_current_data_in_sql_table(self.spark, self.spark_sql_options, table_name)
+    
+    def save_table(self, table:DataFrame, table_name:str):
+        """Save a table using spark jdbc, overwritting any existing table"""
+        table.write.format('jdbc').options(**self.spark_sql_options).option('dbtable', table_name).save(mode='overwrite')
 
 def _make_spark_interface():
     from dotenv import load_dotenv
