@@ -1,13 +1,18 @@
 import data_engineering_management
 from data_engineering_management import DataEngineeringManager
+from db_interfacing import db_interface
+from spark_interfacing import spark_interface
 from db_connector import spark, spark_sql_options, data_engineering_connection
 #CURRENTLY TESTING EACH METHOD TO MAKE SRUE THEY WORK
 
-data_engineering_manager = DataEngineeringManager(spark, spark_sql_options, data_engineering_connection)
+data_engineering_manager = DataEngineeringManager(db_interface, spark_interface)
 
-oil_features = data_engineering_management.create_oil_prices_feature_group()
+oil_features = data_engineering_manager.create_oil_prices_feature_group()
+oil_features
 
-current_oil_data = data_engineering_manager.get_current_data_in_dataset_of_name('oil_price_by_date')
+
+
+current_oil_data = oil_features.get_current_data_in_source_storage()
 current_oil_data.select()
 current_oil_data.show(2)
 

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pyspark.sql.dataframe import DataFrame
 from df_utils import concat_spark_dfs
+from spark_interfacing import SparkInterface
 
 @dataclass
 class TrainTestSplit:
@@ -25,3 +26,23 @@ def make_kfold_train_test_splits(sequentially_split_dataset:list[DataFrame], spl
         k_fold_train_test_splits.append(k_fold_train_test_split)
     
     return k_fold_train_test_splits
+
+class SparkTableStorageHandler():
+    """a storage handler that uses pyspark to store a table.
+       mostly useful for tables that need to be overwritten for storage.
+    """
+    def __init__(self, spark_interface:SparkInterface, save_mode:str='overwrite'):
+        self.spark_interface = spark_interface
+        self.save_mode = save_mode
+        
+    def store_table(self, dataframe:DataFrame, table_name:str):
+        dataframe.write.format('jdbc').options(**self.spark_interface.spark_sql_options).option('dbtable', table_name).save(mode=self.save_mode)
+
+class TrainTestSplitDataset():
+    """A storable train test split """
+    
+    def __init__(self, train_test_split:TrainTestSplit, train_storer:SparkTableStorageHandler, test_storer:SparkTableStorageHandler):
+        
+    
+    def store(self):
+        train_storer.
