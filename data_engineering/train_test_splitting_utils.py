@@ -5,10 +5,34 @@ from spark_interfacing import SparkInterface
 
 @dataclass
 class TrainTestSplit:
-    """A class to group an identifier, train data, and test data."""
-    identifier: str
+    """
+    A fragmentation of the dataset in train and test data.
+    Used for example to represent one of the kfolds produced by kfold splitting for kfold crossvalidation.
+    """
+    original_table_name:str
+    general_split_type:str
+    fold_id:str|object
     train_data: DataFrame
     test_data: DataFrame
+    
+    def _get_identifier(self, split_part_name):
+        return f'{self.original_table_name}_{self.general_split_type}_{split_part_name}_{self.fold_id}'
+    
+    def get_train_identifier(self):
+        """
+        Get an identifier for the train fragment of this split, which includes the table_name, split type, split_id, and 'train' word.
+        Its the suggested table name for a train test split
+        """
+        return self._get_identifier('train')
+    
+    def get_test_identifier(self):
+        """
+        Get an identifier for the test fragment of this split, which includes the table_name, split type, split_id, and 'test' word.
+        Its the suggested table name for a train test split
+        """
+        return self._get_identifier('test')
+    
+
     
 
 def make_kfold_train_test_splits(sequentially_split_dataset:list[DataFrame], split_base_name:str) -> list[TrainTestSplit]:
